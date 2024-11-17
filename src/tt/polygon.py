@@ -383,3 +383,22 @@ def merge_lines(lines, mse_threshold=1):
         for line in merged_lines
     ]
     return merged_lines
+
+
+def are_same_quadrilateral(quad1, quad2, tolerance=1.0):
+    """
+    Check if two quadrilaterals are the same within a given tolerance.
+    Allows for cyclic permutations of points.
+    """
+    # Convert to numpy arrays for easy manipulation
+
+    quad1 = np.array(quad1.vertices)
+    quad2 = np.array(quad2.vertices)
+
+    # Try all cyclic permutations of quad2
+    for i in range(len(quad2)):
+        permuted_quad2 = np.roll(quad2, shift=i, axis=0)
+        if np.allclose(quad1, permuted_quad2, atol=tolerance):
+            return True
+
+    return False

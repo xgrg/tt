@@ -10,6 +10,7 @@ from loguru import logger
 import pandas as pd
 
 
+
 def process_video(
     video_path,
     skip_to_frame=0,
