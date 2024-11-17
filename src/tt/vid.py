@@ -8,7 +8,7 @@ from loguru import logger
 import pandas as pd
 
 
-def process_frame(frame, net, frame_index, history=[]):
+def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
     # Detection of players
 
     players = detect.detect_players(frame, net)
@@ -19,6 +19,9 @@ def process_frame(frame, net, frame_index, history=[]):
     # Detection of table and balls
 
     quadrilaterals, blurred, edges, lines = polygon.detect_quadrilaterals(frame)
+    balls, thresh, contours = None, None, None
+    if prev_frame is not None:
+        balls, (thresh, contours) = detect.detect_balls(frame, prev_frame)
     logger.info(f"{len(quadrilaterals)=}")
     quadrilaterals = [
         e
@@ -76,8 +79,9 @@ def process_frame(frame, net, frame_index, history=[]):
         polygons=quadrilaterals,
         table=best_quad,
         scale=scale,
+        balls=balls,
     )
-    img = [blurred, edges, lines]
+    img = [blurred, edges, lines, thresh, contours]
     return f, img
 
 
@@ -107,6 +111,7 @@ def process(
     frame_seen, frame_processed = 0, 0
 
     history: list[detect.Frame] = []
+    prev_frame = None
 
     with tqdm(
         total=(total_frames - skip_to_frame) // process_every_n
@@ -133,11 +138,11 @@ def process(
                 f"Frame #{skip_to_frame + frame_seen} (shape: {frame.shape}) ({frame_processed} out of {process_n_frames if process_n_frames != 0 else total_frames})"
             )
 
-            f, img = process_frame(frame, net, frame_seen, history)
-            blurred, edges, lines = img
+            f, img = process_frame(frame, net, frame_seen, prev_frame, history)
+            blurred, edges, lines, thresh, contours = img
 
             history.append(f)
-            # previous_frame = frame.copy()
+            prev_frame = frame.copy()
 
             # Rendering display
 
@@ -175,11 +180,14 @@ def process(
                 cv2.imshow("blurred", blurred)
                 cv2.imshow("edges", edges)
                 cv2.imshow("TT", frame)
+                if thresh is not None:
+                    cv2.imshow("thresh", thresh)
+                    cv2.imshow("frame_diff", contours)
 
             key = cv2.waitKey(0) & 0xFF  # Wait indefinitely until a key is pressed
             pbar.update(1)
 
-            if key == ord(" "):  # Check if spacebar is pressed
+            if key == ord(" "):
                 if process_n_frames != 0 and frame_processed >= process_n_frames:
                     break
                 else:

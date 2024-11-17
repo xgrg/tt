@@ -2,3 +2,8 @@ opencv-python
 pandas
 loguru
 pytest
+pytest-cov
+scikit-learn
+matplotlib
+tqdm
+click

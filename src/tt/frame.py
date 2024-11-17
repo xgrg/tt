@@ -4,7 +4,7 @@ import pandas as pd
 
 
 class Player(object):
-    bbox: list[int, int, int, int] = []
+    bbox: list[int, int, int, int] = []  # x, y, w, h
     label: int = -1
     confidence: float = 0.0
     pixels: int = 0
@@ -19,6 +19,7 @@ class Frame(object):
     players: list[Player] = []
     polygons: list[polygon.Polygon] = []
     table: polygon.Polygon | None = None
+    balls = []
     scale: float = 1
 
     def __init__(self, **kwargs):
@@ -103,7 +104,7 @@ def label_quadrilaterals(quadrilaterals, tolerance=10.0):
         # Compare with the rest to group similar ones
         for j, quad2 in enumerate(quadrilaterals[i + 1 :], start=i + 1):
             if j not in label_map and polygon.are_same_quadrilateral(
-                quad1, quad2, tolerance
+                quad1.vertices, quad2.vertices, tolerance
             ):
                 label_map[j] = current_label
 

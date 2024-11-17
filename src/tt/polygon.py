@@ -233,7 +233,7 @@ class Polygon:
                 return 0.0
 
             angle_rad = np.arccos(dot_product / (mag_v1 * mag_v2))
-            return np.degrees(angle_rad) 
+            return np.degrees(angle_rad)
 
         # Calculate angles at each corner of the quadrilateral
         angles = []
@@ -269,7 +269,7 @@ def erase_border(frame, border_percentage=15):
     frame[:border_size_h, :] = 0
     frame[-border_size_h:, :] = 0
     frame[:, :border_size_w] = 0
-    frame[:, -border_size_w:] = 0 
+    frame[:, -border_size_w:] = 0
 
     return frame
 
@@ -392,8 +392,8 @@ def are_same_quadrilateral(quad1, quad2, tolerance=1.0):
     """
     # Convert to numpy arrays for easy manipulation
 
-    quad1 = np.array(quad1.vertices)
-    quad2 = np.array(quad2.vertices)
+    quad1 = np.array(quad1)
+    quad2 = np.array(quad2)
 
     # Try all cyclic permutations of quad2
     for i in range(len(quad2)):
