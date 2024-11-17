@@ -1,17 +1,87 @@
 import cv2
 import os.path as op
 import tt
-import tt.detect
-import tt.draw
 import tt.frame
 from tqdm import tqdm
-from tt import draw, math, polygon, detect
+from tt import math, polygon, detect, draw
 from loguru import logger
 import pandas as pd
 
 
+def process_frame(frame, net, frame_index, history=[]):
+    # Detection of players
 
-def process_video(
+    players = detect.detect_players(frame, net)
+    labels_players = tt.frame.label_players(players, history=history)
+    for p, label in zip(players, labels_players):
+        p.label = label
+
+    # Detection of table and balls
+
+    quadrilaterals, blurred, edges, lines = polygon.detect_quadrilaterals(frame)
+    logger.info(f"{len(quadrilaterals)=}")
+    quadrilaterals = [
+        e
+        for e in quadrilaterals
+        if len(
+            set(e.codes).intersection(
+                [
+                    "NOT_QUADRI",
+                    "NOT_CONVEX",
+                    "BAD_SUM_OF_ANGLES",
+                    "EXTREME_ANGLES",
+                    "EDGE_RATIO",
+                ]
+            )
+        )
+        == 0
+    ]
+    logger.info(f"{len(quadrilaterals)=}")
+
+    labels = tt.frame.label_quadrilaterals(quadrilaterals)
+    logger.info(f"{labels=} {len(quadrilaterals)=}")
+    quadrilaterals = [
+        next(quad for i, quad in enumerate(quadrilaterals) if labels[i] == each)
+        for each in set(labels)
+    ]
+    logger.info(f"{len(quadrilaterals)=}")
+    best_quad = polygon.find_best_quad(quadrilaterals)
+    if best_quad:
+        best_quad.codes.append("BEST")
+
+    # Scale estimation
+
+    scale = math.estimate_scale(players) if players else -1
+    if scale != -1:
+        table_width_pixels = 274 / scale
+        table_height_pixels = 152 / scale
+        logger.info(
+            (
+                "Table width:",
+                table_width_pixels,
+                "Table height:",
+                table_height_pixels,
+                "Expected table area:",
+                table_height_pixels * table_width_pixels,
+            )
+        )
+    else:
+        logger.error("Error in estimating scale")
+
+    # Storing frame in history
+
+    f = tt.frame.Frame(
+        index=frame_index,
+        players=players,
+        polygons=quadrilaterals,
+        table=best_quad,
+        scale=scale,
+    )
+    img = [blurred, edges, lines]
+    return f, img
+
+
+def process(
     video_path,
     skip_to_frame=0,
     offscreen=False,
@@ -63,84 +133,20 @@ def process_video(
                 f"Frame #{skip_to_frame + frame_seen} (shape: {frame.shape}) ({frame_processed} out of {process_n_frames if process_n_frames != 0 else total_frames})"
             )
 
-            # Detection of players
+            f, img = process_frame(frame, net, frame_seen, history)
+            blurred, edges, lines = img
 
-            players = tt.detect.detect_players(frame, net)
-            labels_players = tt.frame.label_players(players, history)
-            for p, label in zip(players, labels_players):
-                p.label = label
-
-            # Detection of table and balls
-
-            quadrilaterals, blurred, edges, lines = polygon.detect_quadrilaterals(frame)
-            logger.info(f"{len(quadrilaterals)=}")
-            quadrilaterals = [
-                e
-                for e in quadrilaterals
-                if len(
-                    set(e.codes).intersection(
-                        [
-                            "NOT_QUADRI",
-                            "NOT_CONVEX",
-                            "BAD_SUM_OF_ANGLES",
-                            "EXTREME_ANGLES",
-                            "EDGE_RATIO",
-                        ]
-                    )
-                )
-                == 0
-            ]
-            logger.info(f"{len(quadrilaterals)=}")
-
-            labels = tt.frame.label_quadrilaterals(quadrilaterals)
-            logger.info(f"{labels=} {len(quadrilaterals)=}")
-            quadrilaterals = [
-                next(quad for i, quad in enumerate(quadrilaterals) if labels[i] == each)
-                for each in set(labels)
-            ]
-            logger.info(f"{len(quadrilaterals)=}")
-            best_quad = polygon.find_best_quad(quadrilaterals)
-            if best_quad:
-                best_quad.codes.append("BEST")
-
-            # Scale estimation
-
-            scale = math.estimate_scale(players) if players else -1
-            if scale != -1:
-                table_width_pixels = 274 / scale
-                table_height_pixels = 152 / scale
-                logger.info(
-                    (
-                        "Table width:",
-                        table_width_pixels,
-                        "Table height:",
-                        table_height_pixels,
-                        "Expected table area:",
-                        table_height_pixels * table_width_pixels,
-                    )
-                )
-            else:
-                logger.error("Error in estimating scale")
-
-            # Storing frame in history
-
-            f = tt.frame.Frame(
-                index=frame_seen,
-                players=players,
-                polygons=quadrilaterals,
-                scale=scale,
-            )
             history.append(f)
-            previous_frame = frame.copy()
+            # previous_frame = frame.copy()
 
             # Rendering display
 
             if not offscreen:
-                frame = tt.draw.draw_players(players, frame)
+                frame = draw.draw_players(f.players, frame)
 
                 valid_quadris = [
                     quad
-                    for quad in quadrilaterals
+                    for quad in f.polygons
                     if "NOT_CONVEX" not in quad.codes
                     and "NOT_QUADRI" not in quad.codes
                     and "AREA" not in quad.codes
@@ -150,8 +156,8 @@ def process_video(
                 ]
                 for quad in valid_quadris:
                     draw.draw_quad(quad, frame, (255, 0, 255), 1)
-                if best_quad is not None:
-                    draw.draw_quad(best_quad, frame, (255, 255, 0), 3)
+                if f.table is not None:
+                    draw.draw_quad(f.table, frame, (255, 255, 0), 3)
 
                 edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
                 for i, line in enumerate(lines):
@@ -191,24 +197,11 @@ def process_video(
         data = []
         all_polygons = [p for f in history for p in f.polygons]
         labels = tt.frame.label_quadrilaterals(all_polygons)
-        for p, l in zip(all_polygons, labels):
-            p.label = l
+        for p, label in zip(all_polygons, labels):
+            p.label = label
 
-        for f in history:
-            data.extend(f.to_rows(fps=fps, start_index=skip_to_frame))
-
-        pd.DataFrame(
-            data,
-            columns=[
-                "index",
-                "timestamp",
-                "type",
-                "label",
-                "vertices",
-                "codes",
-                "angles",
-                "edges",
-                "color",
-                "area",
-            ],
-        ).to_csv(output, index=False)
+        data = pd.concat(
+            [f.to_dataframe(fps=fps, start_index=skip_to_frame) for f in history]
+        )
+        print(data)
+        data.to_csv(output, index=False)

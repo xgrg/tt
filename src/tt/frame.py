@@ -1,6 +1,6 @@
 from tt import polygon, math
 import json
-import numpy as np
+import pandas as pd
 
 
 class Player(object):
@@ -18,13 +18,14 @@ class Frame(object):
     index: int = 0
     players: list[Player] = []
     polygons: list[polygon.Polygon] = []
+    table: polygon.Polygon | None = None
     scale: float = 1
 
     def __init__(self, **kwargs):
         for k, v in kwargs.items():
             setattr(self, k, v)
 
-    def to_rows(self, fps, start_index):
+    def to_dataframe(self, fps, start_index) -> pd.DataFrame:
         rows = []
         for p in self.players:
             row = [
@@ -63,9 +64,22 @@ class Frame(object):
                     ]
                 )
                 rows.append(row)
-        return rows
-
-
+        data = pd.DataFrame(
+            rows,
+            columns=[
+                "index",
+                "timestamp",
+                "type",
+                "label",
+                "vertices",
+                "codes",
+                "angles",
+                "edges",
+                "color",
+                "area",
+            ],
+        )
+        return data
 
 
 def label_quadrilaterals(quadrilaterals, tolerance=10.0):
@@ -88,7 +102,9 @@ def label_quadrilaterals(quadrilaterals, tolerance=10.0):
 
         # Compare with the rest to group similar ones
         for j, quad2 in enumerate(quadrilaterals[i + 1 :], start=i + 1):
-            if j not in label_map and polygon.are_same_quadrilateral(quad1, quad2, tolerance):
+            if j not in label_map and polygon.are_same_quadrilateral(
+                quad1, quad2, tolerance
+            ):
                 label_map[j] = current_label
 
         current_label += 1
@@ -105,9 +121,6 @@ def label_players(players, history: list[Frame] = []) -> list[int]:
             bbox = player.bbox
             for player_in_old_frame in frame.players:
                 overlap = math.compute_overlap(player_in_old_frame.bbox, bbox)
-                # print(
-                #     f"{frame.index} ({len(frame.players)}) : {i} {bbox} / {player_in_old_frame.label} {player_in_old_frame.bbox} = {overlap}"
-                # )
                 labels[i].setdefault(player_in_old_frame.label, 0)
                 labels[i][player_in_old_frame.label] += overlap
 
