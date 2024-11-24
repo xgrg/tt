@@ -5,7 +5,6 @@ import tt.frame
 from tqdm import tqdm
 from tt import math, polygon, detect, draw
 from loguru import logger
-import pandas as pd
 
 
 def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
@@ -19,9 +18,17 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
     # Detection of table and balls
 
     quadrilaterals, blurred, edges, lines = polygon.detect_quadrilaterals(frame)
-    balls, thresh, contours = None, None, None
+    balls, thresh, contours = [], None, None
     if prev_frame is not None:
+        logger.info("*** Detecting balls")
         balls, (thresh, contours) = detect.detect_balls(frame, prev_frame)
+        for b in balls:
+            if b["aspect_ratio"] > 0.5:
+                logger.debug(b)
+            else:
+                logger.info(b)
+    else:
+        logger.warning("*** Skipping ball detection")
     logger.info(f"{len(quadrilaterals)=}")
     quadrilaterals = [
         e
@@ -58,15 +65,9 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
     if scale != -1:
         table_width_pixels = 274 / scale
         table_height_pixels = 152 / scale
+        area = table_height_pixels * table_width_pixels
         logger.info(
-            (
-                "Table width:",
-                table_width_pixels,
-                "Table height:",
-                table_height_pixels,
-                "Expected table area:",
-                table_height_pixels * table_width_pixels,
-            )
+            f"Table width: {table_width_pixels} / height: {table_height_pixels}. Expected table area: {area}"
         )
     else:
         logger.error("Error in estimating scale")
@@ -85,6 +86,48 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
     return f, img
 
 
+def render_display(frame, f, img):
+    blurred, edges, lines, thresh, contours = img
+
+    frame = draw.draw_players(f.players, frame)
+    frame = draw.draw_balls(f.balls, frame)
+
+    valid_quadris = [
+        quad
+        for quad in f.polygons
+        if "NOT_CONVEX" not in quad.codes
+        and "NOT_QUADRI" not in quad.codes
+        and "AREA" not in quad.codes
+        and "BAD_SUM_OF_ANGLES" not in quad.codes
+        and "EXTREME_ANGLES" not in quad.codes
+        and "EDGE_RATIO" not in quad.codes
+    ]
+    for quad in valid_quadris:
+        draw.draw_quad(quad, frame, (255, 0, 255), 1)
+    if f.table is not None:
+        draw.draw_quad(f.table, frame, (255, 255, 0), 1)
+
+    edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+    for i, line in enumerate(lines):
+        x1, y1, x2, y2 = line
+        cv2.line(edges, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cv2.putText(
+            edges,
+            f"{i}",
+            (x1, y1),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 0, 255),
+            2,
+        )
+    cv2.imshow("blurred", blurred)
+    cv2.imshow("edges", edges)
+    cv2.imshow("TT", frame)
+    if thresh is not None:
+        cv2.imshow("thresh", thresh)
+        cv2.imshow("frame_diff", contours)
+
+
 def process(
     video_path,
     skip_to_frame=0,
@@ -97,8 +140,6 @@ def process(
     cap = cv2.VideoCapture(video_path)
     cap.set(cv2.CAP_PROP_POS_FRAMES, skip_to_frame)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-    fps = cap.get(cv2.CAP_PROP_FPS)
 
     # Load YOLO
     net = cv2.dnn.readNet(
@@ -132,57 +173,18 @@ def process(
             frame = cv2.resize(frame, None, fx=0.5, fy=0.5)
 
             logger.debug(
-                "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@"
+                "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@"
             )
-            logger.info(
-                f"Frame #{skip_to_frame + frame_seen} (shape: {frame.shape}) ({frame_processed} out of {process_n_frames if process_n_frames != 0 else total_frames})"
-            )
+            msg = f"Frame #{skip_to_frame + frame_seen} (shape: {frame.shape}) ({frame_processed} out of {process_n_frames if process_n_frames != 0 else total_frames})"
+            logger.info(msg)
 
             f, img = process_frame(frame, net, frame_seen, prev_frame, history)
-            blurred, edges, lines, thresh, contours = img
 
             history.append(f)
             prev_frame = frame.copy()
 
-            # Rendering display
-
             if not offscreen:
-                frame = draw.draw_players(f.players, frame)
-
-                valid_quadris = [
-                    quad
-                    for quad in f.polygons
-                    if "NOT_CONVEX" not in quad.codes
-                    and "NOT_QUADRI" not in quad.codes
-                    and "AREA" not in quad.codes
-                    and "BAD_SUM_OF_ANGLES" not in quad.codes
-                    and "EXTREME_ANGLES" not in quad.codes
-                    and "EDGE_RATIO" not in quad.codes
-                ]
-                for quad in valid_quadris:
-                    draw.draw_quad(quad, frame, (255, 0, 255), 1)
-                if f.table is not None:
-                    draw.draw_quad(f.table, frame, (255, 255, 0), 3)
-
-                edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
-                for i, line in enumerate(lines):
-                    x1, y1, x2, y2 = line
-                    cv2.line(edges, (x1, y1), (x2, y2), (0, 0, 255), 2)
-                    cv2.putText(
-                        edges,
-                        f"{i}",
-                        (x1, y1),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (255, 0, 255),
-                        2,
-                    )
-                cv2.imshow("blurred", blurred)
-                cv2.imshow("edges", edges)
-                cv2.imshow("TT", frame)
-                if thresh is not None:
-                    cv2.imshow("thresh", thresh)
-                    cv2.imshow("frame_diff", contours)
+                render_display(frame, f, img)
 
             key = cv2.waitKey(0) & 0xFF  # Wait indefinitely until a key is pressed
             pbar.update(1)
@@ -201,15 +203,4 @@ def process(
     cap.release()
     cv2.destroyAllWindows()
 
-    if output:
-        data = []
-        all_polygons = [p for f in history for p in f.polygons]
-        labels = tt.frame.label_quadrilaterals(all_polygons)
-        for p, label in zip(all_polygons, labels):
-            p.label = label
-
-        data = pd.concat(
-            [f.to_dataframe(fps=fps, start_index=skip_to_frame) for f in history]
-        )
-        print(data)
-        data.to_csv(output, index=False)
+    return history

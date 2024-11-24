@@ -1,6 +1,7 @@
 import cv2
 from matplotlib import pyplot as plt
 import numpy as np
+import pandas as pd
 
 
 def draw_players(players, frame):
@@ -40,8 +41,11 @@ def draw_quad(quad, frame, color, thickness):
 
 
 def draw_balls(balls, frame):
-    for x, y in balls:
-        cv2.circle(frame, (x, y), radius=5, color=(0, 0, 255), thickness=-1)
+    color_ellipsoid = (0, 0, 255)
+    color_others = (255, 255, 255)
+    for b in balls:
+        color = color_ellipsoid if b["aspect_ratio"] != -1 else color_others
+        cv2.circle(frame, b["center"], radius=b["radius"], color=color, thickness=1)
 
     return frame
 
@@ -96,9 +100,6 @@ def draw_segments_and_quadrilateral(segments, intersections):
 
 
 def plot(output_fp):
-    import pandas as pd
-    import matplotlib.pyplot as plt
-
     df = pd.read_csv(output_fp)
 
     # Plotting

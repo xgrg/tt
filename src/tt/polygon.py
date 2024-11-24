@@ -23,20 +23,18 @@ class Polygon:
     label = -1
 
     def __str__(self):
-        a = f"========================  Polygon (area: {self.area}) ========================\n"
-        a += f"{','.join(self.codes)}\n"
-        a += f" Vertices ({len(self.vertices)}): {self.vertices}\n"
-        a += f" Lines: {self.lines}\n"
+        a = f"Polygon ({','.join(self.codes)} - "
+        a += f" Vertices ({len(self.vertices)}): {self.vertices} - "
+        a += f" Lines: {self.lines} - "
         if len(self.vertices) == 4:
-            a += f" Angles: {self.angles[0]:.2f} {self.angles[1]:.2f} {self.angles[2]:.2f} {self.angles[3]:.2f} ({self.angles[0] + self.angles[2]:.2f} {self.angles[1] + self.angles[3]:.2f})\n"
-            a += f" Edges: {self.edges[0]:.2f} {self.edges[1]:.2f} {self.edges[2]:.2f} {self.edges[3]:.2f}\n"
+            a += f" Angles: {self.angles[0]:.2f} {self.angles[1]:.2f} {self.angles[2]:.2f} {self.angles[3]:.2f} ({self.angles[0] + self.angles[2]:.2f} {self.angles[1] + self.angles[3]:.2f}) - "
+            # a += f" Edges: {self.edges[0]:.2f} {self.edges[1]:.2f} {self.edges[2]:.2f} {self.edges[3]:.2f} - "
             ratios = [
                 max(self.edges[0], self.edges[2]) / min(self.edges[0], self.edges[2]),
                 max(self.edges[1], self.edges[3]) / min(self.edges[1], self.edges[3]),
             ]
-            a += f"Ratios: {ratios[0]:.2f} {ratios[1]:.2f}\n"
-            a += f"Color: {rgb_to_hex(self.color[0])} {self.color[1]} - {rgb_to_hex(self.color[2])} {self.color[3]} {self.color[4]}\n"
-        a += "==================================================================================\n"
+            a += f"Ratios: {ratios[0]:.2f} {ratios[1]:.2f} - "
+            a += f"Color: {rgb_to_hex(self.color[0])} {self.color[1]:.2f} - {rgb_to_hex(self.color[2])} {self.color[3]} {self.color[4]}"
         return a
 
     def __init__(

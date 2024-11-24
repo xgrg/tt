@@ -28,6 +28,25 @@ class Frame(object):
 
     def to_dataframe(self, fps, start_index) -> pd.DataFrame:
         rows = []
+
+        for b in self.balls:
+            row = [
+                self.index + start_index,
+                f"{(start_index + self.index) / fps:.2f}",
+                "ball",
+            ]
+            row.extend(
+                [
+                    b["radius"],
+                    json.dumps(b["center"]),
+                    b["mean_color"],
+                    b["mean_color_margin"],
+                    b["major_axis"],
+                    b["minor_axis"],
+                    b["n_contours"],
+                ]
+            )
+            rows.append(row)
         for p in self.players:
             row = [
                 self.index + start_index,
