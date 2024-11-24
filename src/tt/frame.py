@@ -102,6 +102,57 @@ class Frame(object):
         return data
 
 
+def from_csv(fp: str) -> list[Frame]:
+    df = pd.read_csv(fp)
+    history = []
+    for index, grp in df.groupby("index"):
+        balls = grp.query('type == "ball"')
+        players = grp.query('type == "player"')
+        quads = grp.query('type == "quad"')
+        polygons = [
+            polygon.Polygon(
+                vertices=json.loads(q.vertices),
+                codes=json.loads(q.codes),
+                lines=[],
+                edges=json.loads(q.edges),
+                color=json.loads(q.color),
+                angles=json.loads(q.angles),
+                area=float(q.area),
+                label=int(q.label),
+            )
+            for q in quads.itertuples()
+        ]
+        table = [p for p in polygons if "BEST" in p.codes][0]
+        balls = [
+            {
+                "center": json.loads(b.vertices),
+                "radius": int(b.label),
+                "mean_color": float(b.codes),
+                "mean_color_margin": float(b.angles),
+                "major_axis": float(b.edges),
+                "minor_axis": float(b.color),
+                "aspect_ratio": float(b.color) / float(b.edges),
+                "n_contours": int(b.area),
+            }
+            for b in balls.itertuples()
+        ]
+        players = [
+            Player(label=p.label, bbox=json.loads(p.vertices))
+            for p in players.itertuples()
+        ]
+
+        f = Frame(
+            index=index,
+            players=players,
+            polygons=polygons,
+            balls=balls,
+            table=table,
+            scale=-1,
+        )
+        history.append(f)
+    return history
+
+
 def label_quadrilaterals(quadrilaterals, tolerance=10.0):
     """
     Assign labels to quadrilaterals, grouping similar ones under the same label.

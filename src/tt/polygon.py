@@ -37,10 +37,16 @@ class Polygon:
             a += f"Color: {rgb_to_hex(self.color[0])} {self.color[1]:.2f} - {rgb_to_hex(self.color[2])} {self.color[3]} {self.color[4]}"
         return a
 
-    def __init__(
-        self, combo, lines, frame, target_area=30000, tolerance=1000, tolerance_angle=12
+    def __init__(self, **kwargs):
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    @staticmethod
+    def detect(
+        combo, lines, frame, target_area=30000, tolerance=1000, tolerance_angle=12
     ):
-        self.lines = combo
+        p = Polygon()
+        p.lines = combo
 
         segments = [lines[e] for e in combo]
 
@@ -48,7 +54,7 @@ class Polygon:
         frame_dimensions = frame.shape[:2]
 
         codes = []
-        unique_points = self.find_intersections(
+        unique_points = p.find_intersections(
             segments, frame_dimensions[1], frame_dimensions[0]
         )
         if unique_points:
@@ -56,8 +62,8 @@ class Polygon:
             points = points.reshape((-1, 1, 2))
             hull = cv2.convexHull(points)
             unique_points = [(int(each[0][0]), int(each[0][1])) for each in hull]
-            self.vertices = unique_points
-            self.vertices = [tuple([float(e) for e in each]) for each in unique_points]
+            p.vertices = unique_points
+            p.vertices = [tuple([float(e) for e in each]) for each in unique_points]
 
         else:
             codes.append("NO_INTERSECTION")
@@ -66,7 +72,7 @@ class Polygon:
             codes.append("NOT_QUADRI")
         else:
             # Check angles
-            angles = self.get_polygon_angles()
+            angles = p.get_polygon_angles()
             if (
                 abs(angles[0] + angles[2] - 180) > tolerance_angle
                 or abs(angles[1] + angles[3] - 180) > tolerance_angle
@@ -77,7 +83,7 @@ class Polygon:
                     codes.append("EXTREME_ANGLES")
                     break
 
-            edges = self.get_polygon_edge_lengths()
+            edges = p.get_polygon_edge_lengths()
             ratios = [
                 max(edges[0], edges[2]) / min(edges[0], edges[2]),
                 max(edges[1], edges[3]) / min(edges[1], edges[3]),
@@ -86,14 +92,14 @@ class Polygon:
                 if r > 3:
                     codes.append("EDGE_RATIO")
                     break
-            self.angles = angles
-            self.edges = [float(e) for e in edges]
-            self.color = get_color_stats(unique_points, frame)
+            p.angles = angles
+            p.edges = [float(e) for e in edges]
+            p.color = get_color_stats(unique_points, frame)
 
         # Check if the quadrilateral is convex
-        if not self.is_convex():
+        if not p.is_convex():
             codes.append("NOT_CONVEX")
-        area = self.shoelace_area()
+        area = p.shoelace_area()
 
         # Check if the area is within the tolerance range of the target area
         if not (target_area - tolerance <= area <= target_area + tolerance):
@@ -106,8 +112,9 @@ class Polygon:
                 codes.append("OUT_OF_FRAME")
                 break
 
-        self.codes = codes
-        self.area = area
+        p.codes = codes
+        p.area = area
+        return p
 
     def find_intersections(self, segments, frame_width, frame_height):
         """Find the intersections of each adjacent pair of segments, including the last and first segments, and filter them."""
@@ -298,7 +305,7 @@ def detect_quadrilaterals(frame):
     logger.info(f"Testing {len(combinats)} combinations of lines")
 
     quadrilaterals = [
-        Polygon(combo, lines, frame, tolerance=4000) for combo in combinats
+        Polygon.detect(combo, lines, frame, tolerance=4000) for combo in combinats
     ]
 
     counts = {}
