@@ -5,9 +5,12 @@ import tt.frame
 from tqdm import tqdm
 from tt import math, polygon, detect, draw
 from loguru import logger
+import pandas as pd
 
 
-def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
+def process_frame(
+    frame, net, frame_index, prev_frame=None, history=[], skip_table=False
+):
     # Detection of players
 
     players = detect.detect_players(frame, net)
@@ -16,12 +19,13 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
         p.label = label
 
     # Detection of table and balls
-
-    quadrilaterals, blurred, edges, lines = polygon.detect_quadrilaterals(frame)
-    balls, thresh, contours = [], None, None
+    quadrilaterals = []
+    if not skip_table:
+        quadrilaterals, blurred, edges, lines = polygon.detect_quadrilaterals(frame)
+    balls, thresh, frame_diff = [], None, None
     if prev_frame is not None:
         logger.info("*** Detecting balls")
-        balls, (thresh, contours) = detect.detect_balls(frame, prev_frame)
+        balls, (thresh, frame_diff) = detect.detect_balls(frame, prev_frame)
         for b in balls:
             if b["aspect_ratio"] > 0.5:
                 logger.debug(b)
@@ -29,7 +33,6 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
                 logger.info(b)
     else:
         logger.warning("*** Skipping ball detection")
-    logger.info(f"{len(quadrilaterals)=}")
     quadrilaterals = [
         e
         for e in quadrilaterals
@@ -46,7 +49,6 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
         )
         == 0
     ]
-    logger.info(f"{len(quadrilaterals)=}")
 
     labels = tt.frame.label_quadrilaterals(quadrilaterals)
     logger.info(f"{labels=} {len(quadrilaterals)=}")
@@ -54,7 +56,6 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
         next(quad for i, quad in enumerate(quadrilaterals) if labels[i] == each)
         for each in set(labels)
     ]
-    logger.info(f"{len(quadrilaterals)=}")
     best_quad = polygon.find_best_quad(quadrilaterals)
     if best_quad:
         best_quad.codes.append("BEST")
@@ -82,50 +83,39 @@ def process_frame(frame, net, frame_index, prev_frame=None, history=[]):
         scale=scale,
         balls=balls,
     )
-    img = [blurred, edges, lines, thresh, contours]
+
+    if skip_table:
+        img = [thresh, frame_diff]
+    else:
+        img = [blurred, edges, lines, thresh, frame_diff]
     return f, img
 
 
-def render_display(frame, f, img):
-    blurred, edges, lines, thresh, contours = img
+def render_display(frame, f, img, skip_table):
+    if skip_table:
+        [thresh, frame_diff] = img
+    else:
+        [blurred, edges, lines, thresh, frame_diff] = img
 
     frame = draw.draw_players(f.players, frame)
     frame = draw.draw_balls(f.balls, frame)
 
-    valid_quadris = [
-        quad
-        for quad in f.polygons
-        if "NOT_CONVEX" not in quad.codes
-        and "NOT_QUADRI" not in quad.codes
-        and "AREA" not in quad.codes
-        and "BAD_SUM_OF_ANGLES" not in quad.codes
-        and "EXTREME_ANGLES" not in quad.codes
-        and "EDGE_RATIO" not in quad.codes
-    ]
-    for quad in valid_quadris:
+    for quad in polygon.filter_valid(f.polygons):
         draw.draw_quad(quad, frame, (255, 0, 255), 1)
     if f.table is not None:
         draw.draw_quad(f.table, frame, (255, 255, 0), 1)
 
-    edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
-    for i, line in enumerate(lines):
-        x1, y1, x2, y2 = line
-        cv2.line(edges, (x1, y1), (x2, y2), (0, 0, 255), 2)
-        cv2.putText(
-            edges,
-            f"{i}",
-            (x1, y1),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.6,
-            (255, 0, 255),
-            2,
-        )
-    cv2.imshow("blurred", blurred)
-    cv2.imshow("edges", edges)
-    cv2.imshow("TT", frame)
+    if not skip_table:
+        edges = draw.draw_lines(lines, edges)
+        cv2.imshow("edges", edges)
+        cv2.imshow("blurred", blurred)
+
+    cv2.imshow("Output", frame)
+
     if thresh is not None:
         cv2.imshow("thresh", thresh)
-        cv2.imshow("frame_diff", contours)
+    if frame_diff is not None:
+        cv2.imshow("frame_diff", frame_diff)
 
 
 def process(
@@ -135,13 +125,15 @@ def process(
     process_n_frames=0,
     process_every_n=10,
     output=None,
+    save_every_n=10,
+    skip_table=False,
 ):
     # Open video file
     cap = cv2.VideoCapture(video_path)
     cap.set(cv2.CAP_PROP_POS_FRAMES, skip_to_frame)
     total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
 
-    # Load YOLO
     net = cv2.dnn.readNet(
         op.join(op.dirname(tt.__file__), "data/yolov4.weights"),
         op.join(op.dirname(tt.__file__), "data/yolov4.cfg"),
@@ -173,21 +165,45 @@ def process(
             frame = cv2.resize(frame, None, fx=0.5, fy=0.5)
 
             logger.debug(
-                "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@"
+                "=========================================================================================="
             )
             msg = f"Frame #{skip_to_frame + frame_seen} (shape: {frame.shape}) ({frame_processed} out of {process_n_frames if process_n_frames != 0 else total_frames})"
             logger.info(msg)
 
-            f, img = process_frame(frame, net, frame_seen, prev_frame, history)
+            f, img = process_frame(
+                frame, net, frame_seen, prev_frame, history, skip_table
+            )
 
             history.append(f)
+            history = history[-save_every_n:]
+
+            all_polygons = [p for f in history for p in f.polygons]
+            labels = tt.frame.label_quadrilaterals(all_polygons)
+            for p, label in zip(all_polygons, labels):
+                p.label = label
+
             prev_frame = frame.copy()
 
             if not offscreen:
-                render_display(frame, f, img)
+                render_display(frame, f, img, skip_table)
 
             key = cv2.waitKey(0) & 0xFF  # Wait indefinitely until a key is pressed
             pbar.update(1)
+
+            if frame_processed == save_every_n:
+                df = pd.concat(
+                    [f.to_dataframe(fps, start_index=skip_to_frame) for f in history]
+                )
+                df.to_csv(output, mode="w", index=False, header=True)
+                logger.info(f"Saved in {output}")
+            elif frame_processed % save_every_n == 0 or (
+                process_n_frames != 0 and frame_processed >= process_n_frames
+            ):
+                df = pd.concat(
+                    [f.to_dataframe(fps, start_index=skip_to_frame) for f in history]
+                )
+                df.to_csv(output, mode="a", index=False, header=False)
+                logger.info(f"Saved in {output}")
 
             if key == ord(" "):
                 if process_n_frames != 0 and frame_processed >= process_n_frames:

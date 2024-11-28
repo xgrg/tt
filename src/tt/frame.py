@@ -43,7 +43,7 @@ class Frame(object):
                     b["mean_color_margin"],
                     b["major_axis"],
                     b["minor_axis"],
-                    b["n_contours"],
+                    b["contrast"],
                 ]
             )
             rows.append(row)
@@ -122,7 +122,11 @@ def from_csv(fp: str) -> list[Frame]:
             )
             for q in quads.itertuples()
         ]
-        table = [p for p in polygons if "BEST" in p.codes][0]
+        table = [p for p in polygons if "BEST" in p.codes]
+        if len(table) != 1:
+            table = None
+        else:
+            table = table[0]
         balls = [
             {
                 "center": json.loads(b.vertices),
@@ -132,7 +136,7 @@ def from_csv(fp: str) -> list[Frame]:
                 "major_axis": float(b.edges),
                 "minor_axis": float(b.color),
                 "aspect_ratio": float(b.color) / float(b.edges),
-                "n_contours": int(b.area),
+                "contrast": int(b.area),
             }
             for b in balls.itertuples()
         ]

@@ -41,17 +41,38 @@ def draw_quad(quad, frame, color, thickness):
 
 
 def draw_balls(balls, frame):
-    color_ellipsoid = (0, 0, 255)
+    color_ellipsoid = (0, 255, 255)
     color_others = (255, 255, 255)
-    for b in balls:
+    for b in balls[:1]:
+        cv2.circle(
+            frame, b["center"], radius=b["radius"], color=(0, 0, 255), thickness=2
+        )
+
+    for b in balls[1:]:
         color = color_ellipsoid if b["aspect_ratio"] != -1 else color_others
         cv2.circle(frame, b["center"], radius=b["radius"], color=color, thickness=1)
 
     return frame
 
 
+def draw_lines(lines, edges):
+    edges = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
+    for i, line in enumerate(lines):
+        x1, y1, x2, y2 = line
+        cv2.line(edges, (x1, y1), (x2, y2), (0, 0, 255), 2)
+        cv2.putText(
+            edges,
+            f"{i}",
+            (x1, y1),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (255, 0, 255),
+            2,
+        )
+    return edges
+
+
 def draw_segments_and_quadrilateral(segments, intersections):
-    # Create a new figure
     plt.figure(figsize=(8, 8))
 
     # Draw segments and label them with indices

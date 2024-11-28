@@ -101,18 +101,17 @@ def is_ellipsoid(frame, ball):
     edges = cv2.Canny(blurred_roi, 50, 150)
     contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    aspect_ratio, minor_axis, major_axis = -1, -1, -1
+    res = []
+
     for contour in contours:
+        aspect_ratio, minor_axis, major_axis = -1, -1, -1
         if len(contour) >= 5:  # Minimum points required for ellipse fitting
             ellipse = cv2.fitEllipse(contour)
             major_axis = max(ellipse[1])
             minor_axis = min(ellipse[1])
             aspect_ratio = minor_axis / major_axis if major_axis > 0 else 0
-            # Check if the aspect ratio is within the range of an ellipsoid
-            if 0.5 <= aspect_ratio <= 1.0:  # Adjust threshold for elongation
-                break
-    ellipsoid = (len(contours), aspect_ratio, major_axis, minor_axis)
-    return ellipsoid
+            res.append((aspect_ratio, major_axis, minor_axis))
+    return res
 
 
 def detect_balls(frame, prev_frame):
@@ -120,13 +119,10 @@ def detect_balls(frame, prev_frame):
 
     min_radius, max_radius = 4, 8  # Approximate radius range for table tennis ball
     gray = filter_gray(frame)
-
-    # gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
     prev_gray = filter_gray(prev_frame)
 
     frame_diff = cv2.absdiff(prev_gray, gray)
 
-    # Threshold the difference to get a binary image
     _, thresh = cv2.threshold(frame_diff, 25, 255, cv2.THRESH_BINARY)
 
     # Apply morphological operations to reduce noise
@@ -141,13 +137,9 @@ def detect_balls(frame, prev_frame):
     detected_balls = []
 
     for contour in contours:
-        # Filter by contour area to find the likely ball
-        # area = cv2.contourArea(contour)
-
         # Get the minimum enclosing circle
         (x, y), radius = cv2.minEnclosingCircle(contour)
         radius = int(radius)
-        logger.debug(radius)
         margin_width = 5
         # Check if the radius is within the expected range for the ball
         if min_radius <= radius <= max_radius:
@@ -161,36 +153,27 @@ def detect_balls(frame, prev_frame):
 
             # Calculate the margin mask (expanded mask minus the original mask)
             margin_mask = cv2.subtract(expanded_mask, mask)
+            mean_color = cv2.mean(gray, mask=mask)[:3][0]
+            mean_color_margin = cv2.mean(gray, mask=margin_mask)[:3][0]
 
-            # Compute the mean color inside the original mask
-            non_zero_mask = cv2.bitwise_and(mask, cv2.inRange(gray, 1, 255))
-            mean_color = cv2.mean(gray, mask=non_zero_mask)[:3][0]
-
-            # Compute the mean color inside the margin area
-            non_zero_margin_mask = cv2.bitwise_and(
-                margin_mask, cv2.inRange(gray, 1, 255)
-            )
-            mean_color_margin = cv2.mean(gray, mask=non_zero_margin_mask)[:3][0]
-            (n_contours, aspect_ratio, major_axis, minor_axis) = is_ellipsoid(
+            for aspect_ratio, major_axis, minor_axis in is_ellipsoid(
                 frame, (int(x), int(y), radius)
-            )
-            # Store ball data
-            detected_balls.append(
-                {
-                    "center": (int(x), int(y)),
-                    "radius": radius,
-                    "mean_color": mean_color,
-                    "mean_color_margin": mean_color_margin,
-                    "aspect_ratio": aspect_ratio,
-                    "major_axis": major_axis,
-                    "minor_axis": minor_axis,
-                    "n_contours": n_contours,
-                }
-            )
+            ):
+                detected_balls.append(
+                    {
+                        "center": (int(x), int(y)),
+                        "radius": radius,
+                        "mean_color": mean_color,
+                        "mean_color_margin": mean_color_margin,
+                        "contrast": mean_color / mean_color_margin
+                        if mean_color_margin != 0
+                        else mean_color / 0.1,
+                        "aspect_ratio": aspect_ratio,
+                        "major_axis": major_axis,
+                        "minor_axis": minor_axis,
+                    }
+                )
 
-    # Sort detected balls by color distance to white and keep the top 3
-    detected_balls = sorted(detected_balls, key=lambda b: b["mean_color"])
-    img = thresh, gray
-    # detected_balls = [ball for ball in detected_balls if ball['aspect_ratio'] > 0.5]
+    detected_balls = sorted(detected_balls, key=lambda b: b["contrast"], reverse=True)
 
-    return detected_balls, img
+    return detected_balls, (thresh, frame_diff)

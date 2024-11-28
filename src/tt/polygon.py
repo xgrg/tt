@@ -23,11 +23,11 @@ class Polygon:
     label = -1
 
     def __str__(self):
-        a = f"Polygon ({','.join(self.codes)} - "
-        a += f" Vertices ({len(self.vertices)}): {self.vertices} - "
-        a += f" Lines: {self.lines} - "
+        a = f"Polygon ({','.join(self.codes)}): "
+        a += f"Vertices ({len(self.vertices)}): {self.vertices} - "
+        a += f"Lines: {self.lines} - "
         if len(self.vertices) == 4:
-            a += f" Angles: {self.angles[0]:.2f} {self.angles[1]:.2f} {self.angles[2]:.2f} {self.angles[3]:.2f} ({self.angles[0] + self.angles[2]:.2f} {self.angles[1] + self.angles[3]:.2f}) - "
+            a += f"Angles: {self.angles[0]:.2f} {self.angles[1]:.2f} {self.angles[2]:.2f} {self.angles[3]:.2f} ({self.angles[0] + self.angles[2]:.2f} {self.angles[1] + self.angles[3]:.2f}) - "
             # a += f" Edges: {self.edges[0]:.2f} {self.edges[1]:.2f} {self.edges[2]:.2f} {self.edges[3]:.2f} - "
             ratios = [
                 max(self.edges[0], self.edges[2]) / min(self.edges[0], self.edges[2]),
@@ -321,6 +321,19 @@ def detect_quadrilaterals(frame):
     return quadrilaterals, blurred, edges, lines
 
 
+def filter_valid(polygons):
+    return [
+        quad
+        for quad in polygons
+        if "NOT_CONVEX" not in quad.codes
+        and "NOT_QUADRI" not in quad.codes
+        and "AREA" not in quad.codes
+        and "BAD_SUM_OF_ANGLES" not in quad.codes
+        and "EXTREME_ANGLES" not in quad.codes
+        and "EDGE_RATIO" not in quad.codes
+    ]
+
+
 def find_best_quad(quadrilaterals):
     valid_quadris = [
         quad
@@ -333,7 +346,7 @@ def find_best_quad(quadrilaterals):
         and "EDGE_RATIO" not in quad.codes
     ]
 
-    logger.info(f"*** {len(valid_quadris)} VALID QUADRILATERAL FOUND\n\n")
+    logger.info(f"*** {len(valid_quadris)} VALID QUADRILATERAL FOUND")
 
     counts = {}
     for quad in valid_quadris:
